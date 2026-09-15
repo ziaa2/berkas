@@ -8,46 +8,80 @@
 </head>
 <body>
 
-<header class="topbar">
-  <h1>Berkas</h1>
-  <div class="topbar-actions">
-    <button id="btnAddLocal" class="btn btn-ghost" title="Tambah dari perangkat">+ Perangkat</button>
-    <button id="btnAddMega" class="btn btn-ghost" title="Tambah dari tautan Mega">+ Tautan</button>
-  </div>
-</header>
-
-<main id="library" class="library">
-  <div id="emptyState" class="empty-state">
-    <p>Belum ada berkas.</p>
-    <p class="muted">Tambahkan video, PDF, atau komik (.cbz/.zip) lewat tombol di atas.</p>
-  </div>
-  <div id="grid" class="grid"></div>
-</main>
-
-<!-- Modal: tambah dari tautan Mega -->
-<div id="megaModal" class="modal hidden">
-  <div class="modal-card">
-    <h2>Tambah dari tautan</h2>
-    <p class="muted">Tempel tautan berbagi Mega (mega.nz/... atau mega.io/...).</p>
-    <input id="megaUrlInput" type="text" placeholder="https://mega.nz/file/..." autocomplete="off">
-    <div id="megaStatus" class="status muted"></div>
-    <div class="modal-actions">
-      <button id="megaCancel" class="btn btn-ghost">Batal</button>
-      <button id="megaConfirm" class="btn btn-primary">Ambil</button>
-    </div>
+<div id="lockScreen" class="lock-screen">
+  <div class="lock-card">
+    <div id="lockMsg" class="lock-msg">Masukkan PIN</div>
+    <input id="lockInput" type="password" inputmode="numeric" autocomplete="off" maxlength="16" class="lock-input" placeholder="••••">
+    <div id="lockError" class="lock-error"></div>
+    <button id="lockSubmit" class="btn btn-primary lock-submit">Buka</button>
   </div>
 </div>
 
-<input id="localFileInput" type="file" accept="video/*,application/pdf,.pdf,.zip,.cbz,application/zip" multiple hidden>
+<div id="appRoot" class="hidden">
 
-<!-- Viewer full-screen -->
-<div id="viewer" class="viewer hidden">
-  <div class="viewer-topbar">
-    <button id="viewerClose" class="btn btn-ghost">‹ Tutup</button>
-    <span id="viewerTitle" class="viewer-title"></span>
-    <button id="viewerDelete" class="btn btn-ghost danger">Hapus</button>
+  <header class="topbar">
+    <h1>Berkas</h1>
+    <div class="topbar-actions">
+      <button id="btnAddLocal" class="btn btn-ghost" title="Tambah dari perangkat">+ Perangkat</button>
+      <button id="btnAddMega" class="btn btn-ghost" title="Tambah dari tautan Mega">+ Tautan</button>
+      <button id="btnChangePin" class="btn btn-ghost" title="Ganti PIN">PIN</button>
+      <button id="btnLock" class="btn btn-ghost" title="Kunci">🔒</button>
+    </div>
+  </header>
+
+  <nav class="view-switch">
+    <button id="viewKoleksi" class="view-btn active">Koleksi</button>
+    <button id="viewKomik" class="view-btn">Komik</button>
+  </nav>
+
+  <nav id="tabs" class="tabs"></nav>
+
+  <main id="library" class="library">
+    <div id="emptyState" class="empty-state">
+      <p>Belum ada berkas.</p>
+      <p class="muted">Tambahkan lewat tombol di atas.</p>
+    </div>
+    <div id="grid" class="grid"></div>
+  </main>
+
+  <!-- Modal: pilih kategori sebelum tambah dari perangkat (hanya untuk panel Koleksi) -->
+  <div id="localCatModal" class="modal hidden">
+    <div class="modal-card">
+      <h2>Simpan ke kategori mana?</h2>
+      <div id="localCatPick" class="cat-pick"></div>
+      <div class="modal-actions">
+        <button id="localCatCancel" class="btn btn-ghost">Batal</button>
+      </div>
+    </div>
   </div>
-  <div id="viewerBody" class="viewer-body"></div>
+
+  <!-- Modal: tambah dari tautan Mega -->
+  <div id="megaModal" class="modal hidden">
+    <div class="modal-card">
+      <h2>Tambah dari tautan</h2>
+      <p class="muted">Tempel tautan berbagi Mega (mega.nz/... atau mega.io/...).</p>
+      <input id="megaUrlInput" type="text" placeholder="https://mega.nz/file/..." autocomplete="off">
+      <div id="megaCatPick" class="cat-pick"></div>
+      <div id="megaStatus" class="status muted"></div>
+      <div class="modal-actions">
+        <button id="megaCancel" class="btn btn-ghost">Batal</button>
+        <button id="megaConfirm" class="btn btn-primary">Ambil</button>
+      </div>
+    </div>
+  </div>
+
+  <input id="localFileInput" type="file" accept="video/*,application/pdf,.pdf,.zip,.cbz,application/zip" multiple hidden>
+
+  <!-- Viewer full-screen -->
+  <div id="viewer" class="viewer hidden">
+    <div class="viewer-topbar">
+      <button id="viewerClose" class="btn btn-ghost">‹ Tutup</button>
+      <span id="viewerTitle" class="viewer-title"></span>
+      <button id="viewerDelete" class="btn btn-ghost danger">Hapus</button>
+    </div>
+    <div id="viewerBody" class="viewer-body"></div>
+  </div>
+
 </div>
 
 <div id="toast" class="toast hidden"></div>

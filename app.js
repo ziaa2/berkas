@@ -56,6 +56,38 @@ async function dbDelete(id) {
   });
 }
 
+// ====== Kategori (disimpan di localStorage, ringan & terpisah dari file blob) ======
+const CAT_KEY = 'berkas_categories_v1';
+function loadCategories() {
+  try {
+    const raw = localStorage.getItem(CAT_KEY);
+    if (raw) return JSON.parse(raw);
+  } catch (e) {}
+  const def = [
+    { id: 'c1', label: 'X', counter: 0 },
+    { id: 'c2', label: 'PRN', counter: 0 },
+    { id: 'c3', label: 'TT', counter: 0 }
+  ];
+  localStorage.setItem(CAT_KEY, JSON.stringify(def));
+  return def;
+}
+function saveCategories(cats) {
+  localStorage.setItem(CAT_KEY, JSON.stringify(cats));
+}
+let categories = loadCategories();
+
+function getCategory(id) {
+  return categories.find(c => c.id === id);
+}
+
+// ambil nama otomatis berikutnya untuk kategori, sekaligus naikkan & simpan counter-nya
+function nextAutoName(catId) {
+  const cat = getCategory(catId);
+  cat.counter += 1;
+  saveCategories(categories);
+  return cat.label.toLowerCase() + cat.counter;
+}
+
 // ====== Util ======
 function uid() {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
@@ -86,11 +118,256 @@ function toast(msg) {
   toastTimer = setTimeout(() => el.classList.add('hidden'), 3200);
 }
 
+function escapeHtml(s) {
+  const d = document.createElement('div');
+  d.textContent = s;
+  return d.innerHTML;
+}
+
+// ====== Thumbnail ======
+function downscaleCanvasToDataUrl(sourceEl, maxW) {
+  const w = sourceEl.videoWidth || sourceEl.naturalWidth || sourceEl.width;
+  const h = sourceEl.videoHeight || sourceEl.naturalHeight || sourceEl.height;
+  if (!w || !h) return null;
+  const scale = Math.min(1, maxW / w);
+  const canvas = document.createElement('canvas');
+  canvas.width = w * scale;
+  canvas.height = h * scale;
+  const ctx = canvas.getContext('2d');
+  ctx.drawImage(sourceEl, 0, 0, canvas.width, canvas.height);
+  return canvas.toDataURL('image/jpeg', 0.6);
+}
+
+function makeVideoThumb(blob) {
+  return new Promise((resolve) => {
+    const url = URL.createObjectURL(blob);
+    const v = document.createElement('video');
+    v.src = url;
+    v.muted = true;
+    v.playsInline = true;
+    let done = false;
+    const finish = (result) => {
+      if (done) return;
+      done = true;
+      URL.revokeObjectURL(url);
+      resolve(result);
+    };
+    v.addEventListener('loadedmetadata', () => {
+      v.currentTime = Math.min(1, (v.duration || 2) / 3);
+    });
+    v.addEventListener('seeked', () => {
+      try { finish(downscaleCanvasToDataUrl(v, 320)); }
+      catch (e) { finish(null); }
+    });
+    v.addEventListener('error', () => finish(null));
+    setTimeout(() => finish(null), 8000); // jaga-jaga kalau macet
+  });
+}
+
+function makeImageThumb(blob) {
+  return new Promise((resolve) => {
+    const url = URL.createObjectURL(blob);
+    const img = new Image();
+    img.onload = () => {
+      const result = downscaleCanvasToDataUrl(img, 320);
+      URL.revokeObjectURL(url);
+      resolve(result);
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); resolve(null); };
+    img.src = url;
+  });
+}
+
+async function makeThumb(type, blob) {
+  try {
+    if (type === 'video') return await makeVideoThumb(blob);
+    if (type === 'comic') {
+      const zip = await JSZip.loadAsync(blob);
+      const first = Object.values(zip.files)
+        .filter(f => !f.dir && /\.(jpe?g|png|webp|gif|avif)$/i.test(f.name))
+        .sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }))[0];
+      if (!first) return null;
+      const imgBlob = await first.async('blob');
+      return await makeImageThumb(imgBlob);
+    }
+  } catch (e) { console.warn('thumb gagal', e); }
+  return null;
+}
+
+// ====== PIN kunci (hash-nya doang yang disimpan, PIN aslinya ga pernah nempel di file manapun) ======
+const PIN_KEY = 'berkas_pin_hash';
+const SESSION_KEY = 'berkas_unlocked';
+let lockMode = 'unlock';
+let tempPin = null;
+
+async function sha256Hex(str) {
+  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(str));
+  return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+function showApp() {
+  document.getElementById('lockScreen').classList.add('hidden');
+  document.getElementById('appRoot').classList.remove('hidden');
+  renderTabs();
+  renderGrid();
+}
+function showLock(mode, msg) {
+  lockMode = mode;
+  document.getElementById('appRoot').classList.add('hidden');
+  document.getElementById('lockScreen').classList.remove('hidden');
+  document.getElementById('lockMsg').textContent = msg;
+  const input = document.getElementById('lockInput');
+  input.value = '';
+  document.getElementById('lockError').textContent = '';
+  setTimeout(() => input.focus(), 50);
+}
+
+function initLock() {
+  const hash = localStorage.getItem(PIN_KEY);
+  if (!hash) { showLock('setup', 'Buat PIN baru'); return; }
+  if (sessionStorage.getItem(SESSION_KEY) === '1') { showApp(); return; }
+  showLock('unlock', 'Masukkan PIN');
+}
+
+async function handleLockSubmit() {
+  const val = document.getElementById('lockInput').value;
+  const errEl = document.getElementById('lockError');
+  if (!val || val.length < 4) { errEl.textContent = 'Minimal 4 digit/karakter.'; return; }
+
+  if (lockMode === 'setup') {
+    tempPin = val;
+    showLock('setup-confirm', 'Ulangi PIN tadi');
+    return;
+  }
+  if (lockMode === 'setup-confirm') {
+    if (val !== tempPin) { tempPin = null; showLock('setup', 'Tidak cocok — buat PIN baru lagi'); return; }
+    localStorage.setItem(PIN_KEY, await sha256Hex(val));
+    sessionStorage.setItem(SESSION_KEY, '1');
+    tempPin = null;
+    showApp();
+    toast('PIN dibuat');
+    return;
+  }
+  if (lockMode === 'unlock') {
+    if (await sha256Hex(val) === localStorage.getItem(PIN_KEY)) {
+      sessionStorage.setItem(SESSION_KEY, '1');
+      showApp();
+    } else {
+      errEl.textContent = 'PIN salah.';
+    }
+    return;
+  }
+  if (lockMode === 'change-old') {
+    if (await sha256Hex(val) !== localStorage.getItem(PIN_KEY)) { errEl.textContent = 'PIN lama salah.'; return; }
+    showLock('change-new', 'Masukkan PIN baru');
+    return;
+  }
+  if (lockMode === 'change-new') {
+    tempPin = val;
+    showLock('change-confirm', 'Ulangi PIN baru');
+    return;
+  }
+  if (lockMode === 'change-confirm') {
+    if (val !== tempPin) { tempPin = null; showLock('change-new', 'Tidak cocok — masukkan PIN baru lagi'); return; }
+    localStorage.setItem(PIN_KEY, await sha256Hex(val));
+    tempPin = null;
+    showApp();
+    toast('PIN diganti');
+    return;
+  }
+}
+
+document.getElementById('lockSubmit').addEventListener('click', handleLockSubmit);
+document.getElementById('lockInput').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') handleLockSubmit();
+});
+document.getElementById('btnLock').addEventListener('click', () => {
+  sessionStorage.removeItem(SESSION_KEY);
+  initLock();
+});
+document.getElementById('btnChangePin').addEventListener('click', () => {
+  showLock('change-old', 'Masukkan PIN lama');
+});
+
+// ====== Panel: Koleksi (X/PRN/TT) vs Komik (terpisah) ======
+let activeView = 'koleksi';
+document.getElementById('viewKoleksi').addEventListener('click', () => {
+  activeView = 'koleksi';
+  document.getElementById('viewKoleksi').classList.add('active');
+  document.getElementById('viewKomik').classList.remove('active');
+  document.getElementById('tabs').classList.remove('hidden');
+  renderGrid();
+});
+document.getElementById('viewKomik').addEventListener('click', () => {
+  activeView = 'komik';
+  document.getElementById('viewKomik').classList.add('active');
+  document.getElementById('viewKoleksi').classList.remove('active');
+  document.getElementById('tabs').classList.add('hidden');
+  renderGrid();
+});
+
+// ====== Tabs kategori ======
+let activeTab = 'all';
+
+function renderTabs() {
+  const tabsEl = document.getElementById('tabs');
+  tabsEl.innerHTML = '';
+
+  const allTab = document.createElement('div');
+  allTab.className = 'tab' + (activeTab === 'all' ? ' active' : '');
+  allTab.textContent = 'Semua';
+  allTab.addEventListener('click', () => { activeTab = 'all'; renderTabs(); renderGrid(); });
+  tabsEl.appendChild(allTab);
+
+  categories.forEach(cat => {
+    const t = document.createElement('div');
+    t.className = 'tab' + (activeTab === cat.id ? ' active' : '');
+    t.innerHTML = `<span>${escapeHtml(cat.label)}</span><span class="edit" data-id="${cat.id}">✎</span>`;
+    t.querySelector('span:first-child').addEventListener('click', () => {
+      activeTab = cat.id; renderTabs(); renderGrid();
+    });
+    t.querySelector('.edit').addEventListener('click', (e) => {
+      e.stopPropagation();
+      const name = prompt('Nama kategori baru:', cat.label);
+      if (name && name.trim()) {
+        cat.label = name.trim();
+        saveCategories(categories);
+        renderTabs();
+        renderGrid();
+      }
+    });
+    tabsEl.appendChild(t);
+  });
+}
+
+function renderCatPicker(container, onPick) {
+  container.innerHTML = '';
+  let selected = null;
+  categories.forEach(cat => {
+    const b = document.createElement('button');
+    b.type = 'button';
+    b.textContent = cat.label;
+    b.addEventListener('click', () => {
+      selected = cat.id;
+      [...container.children].forEach(c => c.classList.remove('selected'));
+      b.classList.add('selected');
+      onPick(selected);
+    });
+    container.appendChild(b);
+  });
+}
+
 // ====== Render library ======
 async function renderGrid() {
   const grid = document.getElementById('grid');
   const empty = document.getElementById('emptyState');
-  const items = await dbGetAll();
+  let items = await dbGetAll();
+  if (activeView === 'komik') {
+    items = items.filter(i => i.type === 'comic');
+  } else {
+    items = items.filter(i => i.type !== 'comic');
+    if (activeTab !== 'all') items = items.filter(i => i.category === activeTab);
+  }
   grid.innerHTML = '';
   empty.classList.toggle('hidden', items.length > 0);
 
@@ -99,38 +376,61 @@ async function renderGrid() {
   for (const item of items) {
     const card = document.createElement('div');
     card.className = 'card';
+    const thumbHtml = item.thumb
+      ? `<img src="${item.thumb}" alt="">`
+      : `<span class="card-icon">${icons[item.type] || icons.other}</span>`;
     card.innerHTML = `
-      <div class="card-icon">${icons[item.type] || icons.other}</div>
-      <div class="card-name">${escapeHtml(item.name)}</div>
-      <div class="card-meta">${fmtSize(item.size)}</div>
+      <div class="card-thumb">${thumbHtml}</div>
+      <div class="card-info">
+        <div class="card-name">${escapeHtml(item.name)}</div>
+        <div class="card-meta">${fmtSize(item.size)}</div>
+      </div>
     `;
     card.addEventListener('click', () => openViewer(item.id));
     grid.appendChild(card);
   }
 }
 
-function escapeHtml(s) {
-  const d = document.createElement('div');
-  d.textContent = s;
-  return d.innerHTML;
-}
+// ====== Tambah dari perangkat ======
+let pendingLocalCategory = null;
+const localCatModal = document.getElementById('localCatModal');
 
-// ====== Add from local device ======
 document.getElementById('btnAddLocal').addEventListener('click', () => {
-  document.getElementById('localFileInput').click();
+  pendingLocalCategory = null;
+  if (activeView === 'komik') {
+    document.getElementById('localFileInput').click();
+    return;
+  }
+  renderCatPicker(document.getElementById('localCatPick'), (catId) => {
+    pendingLocalCategory = catId;
+    localCatModal.classList.add('hidden');
+    document.getElementById('localFileInput').click();
+  });
+  localCatModal.classList.remove('hidden');
+});
+document.getElementById('localCatCancel').addEventListener('click', () => {
+  localCatModal.classList.add('hidden');
 });
 
 document.getElementById('localFileInput').addEventListener('change', async (e) => {
   const files = Array.from(e.target.files || []);
+  const catId = pendingLocalCategory;
   for (const f of files) {
     const type = guessType(f.name, f.type || '');
+    const thumb = await makeThumb(type, f);
+    const isComic = type === 'comic';
+    const useCat = isComic ? null : catId;
+    const name = useCat ? nextAutoName(useCat) + guessExt(f.name) : f.name;
     await dbPut({
       id: uid(),
-      name: f.name,
+      name,
+      originalName: f.name,
       mime: f.type || '',
       type,
+      category: useCat,
       size: f.size,
       blob: f,
+      thumb,
       addedAt: Date.now()
     });
   }
@@ -139,11 +439,26 @@ document.getElementById('localFileInput').addEventListener('change', async (e) =
   renderGrid();
 });
 
-// ====== Add from Mega link ======
+function guessExt(name) {
+  const i = name.lastIndexOf('.');
+  return i >= 0 ? name.slice(i) : '';
+}
+
+// ====== Tambah dari tautan Mega ======
 const megaModal = document.getElementById('megaModal');
+let pendingMegaCategory = null;
+
 document.getElementById('btnAddMega').addEventListener('click', () => {
   document.getElementById('megaUrlInput').value = '';
   document.getElementById('megaStatus').textContent = '';
+  pendingMegaCategory = null;
+  const catPickEl = document.getElementById('megaCatPick');
+  if (activeView === 'komik') {
+    catPickEl.classList.add('hidden');
+  } else {
+    catPickEl.classList.remove('hidden');
+    renderCatPicker(catPickEl, (catId) => { pendingMegaCategory = catId; });
+  }
   megaModal.classList.remove('hidden');
 });
 document.getElementById('megaCancel').addEventListener('click', () => {
@@ -154,6 +469,7 @@ document.getElementById('megaConfirm').addEventListener('click', async () => {
   const url = document.getElementById('megaUrlInput').value.trim();
   const statusEl = document.getElementById('megaStatus');
   if (!url) { statusEl.textContent = 'Tempel tautan dulu.'; return; }
+  if (activeView !== 'komik' && !pendingMegaCategory) { statusEl.textContent = 'Pilih kategori dulu.'; return; }
   if (!window.mega || !window.mega.File) {
     statusEl.textContent = 'Pustaka Mega belum siap. Coba lagi (butuh koneksi internet saat pertama kali).';
     return;
@@ -180,13 +496,22 @@ document.getElementById('megaConfirm').addEventListener('click', async () => {
 
     const blob = new Blob(chunks);
     const type = guessType(info.name, '');
+    statusEl.textContent = 'Membuat thumbnail…';
+    const thumb = await makeThumb(type, blob);
+    const isComic = type === 'comic';
+    const useCat = isComic ? null : pendingMegaCategory;
+    const name = useCat ? nextAutoName(useCat) + guessExt(info.name) : info.name;
+
     await dbPut({
       id: uid(),
-      name: info.name,
+      name,
+      originalName: info.name,
       mime: '',
       type,
+      category: useCat,
       size: info.size || blob.size,
       blob,
+      thumb,
       addedAt: Date.now()
     });
     statusEl.textContent = '';
@@ -221,13 +546,7 @@ async function openViewer(id) {
   revokeActiveUrls();
 
   if (item.type === 'video') {
-    const url = URL.createObjectURL(item.blob);
-    activeObjectUrls.push(url);
-    const v = document.createElement('video');
-    v.src = url;
-    v.controls = true;
-    v.autoplay = true;
-    viewerBody.appendChild(v);
+    await openVideoViewer(item);
   } else if (item.type === 'pdf') {
     const url = URL.createObjectURL(item.blob);
     activeObjectUrls.push(url);
@@ -241,6 +560,47 @@ async function openViewer(id) {
   }
 
   viewerEl.classList.remove('hidden');
+}
+
+// video player: loop otomatis + navigasi ke video lain di kategori yang sama
+async function openVideoViewer(item) {
+  const all = await dbGetAll();
+  const siblings = (item.category ? all.filter(i => i.category === item.category && i.type === 'video') : all.filter(i => i.type === 'video'))
+    .sort((a, b) => a.addedAt - b.addedAt);
+  let idx = siblings.findIndex(i => i.id === item.id);
+
+  const wrap = document.createElement('div');
+  wrap.style.cssText = 'width:100%;height:100%;display:flex;flex-direction:column;';
+  wrap.innerHTML = `
+    <div style="flex:1;display:flex;align-items:center;justify-content:center;overflow:hidden;">
+      <video id="mainVideo" controls autoplay loop playsinline></video>
+    </div>
+    <div class="video-nav">
+      <button id="vidPrev" class="btn btn-ghost">‹ Sebelumnya</button>
+      <span id="vidCount" class="muted"></span>
+      <button id="vidNext" class="btn btn-ghost">Berikutnya ›</button>
+    </div>
+  `;
+  viewerBody.innerHTML = '';
+  viewerBody.appendChild(wrap);
+
+  const videoEl = wrap.querySelector('#mainVideo');
+  const countEl = wrap.querySelector('#vidCount');
+
+  function load(i) {
+    idx = i;
+    const cur = siblings[idx];
+    const url = URL.createObjectURL(cur.blob);
+    activeObjectUrls.push(url);
+    videoEl.src = url;
+    viewerTitle.textContent = cur.name;
+    countEl.textContent = siblings.length > 1 ? (idx + 1) + ' / ' + siblings.length : '';
+    currentViewingId = cur.id;
+  }
+  wrap.querySelector('#vidPrev').addEventListener('click', () => { if (idx > 0) load(idx - 1); });
+  wrap.querySelector('#vidNext').addEventListener('click', () => { if (idx < siblings.length - 1) load(idx + 1); });
+
+  load(idx);
 }
 
 function closeViewer() {
@@ -302,7 +662,6 @@ async function openComicReader(item) {
     wrap.querySelector('#comicPrev').addEventListener('click', () => showPage(page - 1));
     wrap.querySelector('#comicNext').addEventListener('click', () => showPage(page + 1));
 
-    // swipe/tap navigasi di gambar
     let touchStartX = null;
     wrap.querySelector('.comic-page-wrap').addEventListener('touchstart', (e) => {
       touchStartX = e.changedTouches[0].clientX;
@@ -329,4 +688,4 @@ if ('serviceWorker' in navigator) {
 }
 
 // ====== Init ======
-renderGrid();
+initLock();
