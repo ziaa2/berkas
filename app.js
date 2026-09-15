@@ -131,35 +131,58 @@ function downscaleCanvasToDataUrl(sourceEl, maxW) {
   if (!w || !h) return null;
   const scale = Math.min(1, maxW / w);
   const canvas = document.createElement('canvas');
-  canvas.width = w * scale;
-  canvas.height = h * scale;
+  canvas.width = Math.max(1, Math.round(w * scale));
+  canvas.height = Math.max(1, Math.round(h * scale));
   const ctx = canvas.getContext('2d');
   ctx.drawImage(sourceEl, 0, 0, canvas.width, canvas.height);
-  return canvas.toDataURL('image/jpeg', 0.6);
+  try {
+    return canvas.toDataURL('image/jpeg', 0.6);
+  } catch (e) {
+    console.warn('toDataURL gagal (kemungkinan canvas tainted)', e);
+    return null;
+  }
+}
+
+// elemen kerja HARUS ditempel ke DOM (walau disembunyikan) — banyak browser Android/WebView
+// ogah men-decode frame video/gambar kalau elemennya cuma dibuat di memori tanpa dipasang ke halaman
+function attachHidden(el) {
+  el.style.cssText = 'position:fixed;left:-9999px;top:0;width:2px;height:2px;opacity:0;pointer-events:none;';
+  document.body.appendChild(el);
+  return el;
 }
 
 function makeVideoThumb(blob) {
   return new Promise((resolve) => {
     const url = URL.createObjectURL(blob);
     const v = document.createElement('video');
-    v.src = url;
+    v.preload = 'auto';
     v.muted = true;
     v.playsInline = true;
+    v.src = url;
+    attachHidden(v);
     let done = false;
     const finish = (result) => {
       if (done) return;
       done = true;
       URL.revokeObjectURL(url);
+      v.remove();
       resolve(result);
     };
     v.addEventListener('loadedmetadata', () => {
-      v.currentTime = Math.min(1, (v.duration || 2) / 3);
+      try {
+        v.currentTime = Math.min(1, (v.duration || 2) / 3) || 0.1;
+      } catch (e) { finish(null); }
     });
     v.addEventListener('seeked', () => {
-      try { finish(downscaleCanvasToDataUrl(v, 320)); }
-      catch (e) { finish(null); }
+      // tunggu 2 frame render dulu — pas event 'seeked' ditembak, frame-nya kadang
+      // belum benar-benar ke-render di beberapa browser Android, hasilnya capture kosong
+      requestAnimationFrame(() => requestAnimationFrame(() => {
+        try { finish(downscaleCanvasToDataUrl(v, 320)); }
+        catch (e) { finish(null); }
+      }));
     });
     v.addEventListener('error', () => finish(null));
+    v.load();
     setTimeout(() => finish(null), 8000); // jaga-jaga kalau macet
   });
 }
@@ -168,12 +191,14 @@ function makeImageThumb(blob) {
   return new Promise((resolve) => {
     const url = URL.createObjectURL(blob);
     const img = new Image();
+    attachHidden(img);
     img.onload = () => {
       const result = downscaleCanvasToDataUrl(img, 320);
       URL.revokeObjectURL(url);
+      img.remove();
       resolve(result);
     };
-    img.onerror = () => { URL.revokeObjectURL(url); resolve(null); };
+    img.onerror = () => { URL.revokeObjectURL(url); img.remove(); resolve(null); };
     img.src = url;
   });
 }
