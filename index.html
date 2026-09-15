@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Berkas</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header class="topbar">
+  <h1>Berkas</h1>
+  <div class="topbar-actions">
+    <button id="btnAddLocal" class="btn btn-ghost" title="Tambah dari perangkat">+ Perangkat</button>
+    <button id="btnAddMega" class="btn btn-ghost" title="Tambah dari tautan Mega">+ Tautan</button>
+  </div>
+</header>
+
+<main id="library" class="library">
+  <div id="emptyState" class="empty-state">
+    <p>Belum ada berkas.</p>
+    <p class="muted">Tambahkan video, PDF, atau komik (.cbz/.zip) lewat tombol di atas.</p>
+  </div>
+  <div id="grid" class="grid"></div>
+</main>
+
+<!-- Modal: tambah dari tautan Mega -->
+<div id="megaModal" class="modal hidden">
+  <div class="modal-card">
+    <h2>Tambah dari tautan</h2>
+    <p class="muted">Tempel tautan berbagi Mega (mega.nz/... atau mega.io/...).</p>
+    <input id="megaUrlInput" type="text" placeholder="https://mega.nz/file/..." autocomplete="off">
+    <div id="megaStatus" class="status muted"></div>
+    <div class="modal-actions">
+      <button id="megaCancel" class="btn btn-ghost">Batal</button>
+      <button id="megaConfirm" class="btn btn-primary">Ambil</button>
+    </div>
+  </div>
+</div>
+
+<input id="localFileInput" type="file" accept="video/*,application/pdf,.pdf,.zip,.cbz,application/zip" multiple hidden>
+
+<!-- Viewer full-screen -->
+<div id="viewer" class="viewer hidden">
+  <div class="viewer-topbar">
+    <button id="viewerClose" class="btn btn-ghost">‹ Tutup</button>
+    <span id="viewerTitle" class="viewer-title"></span>
+    <button id="viewerDelete" class="btn btn-ghost danger">Hapus</button>
+  </div>
+  <div id="viewerBody" class="viewer-body"></div>
+</div>
+
+<div id="toast" class="toast hidden"></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<script src="https://unpkg.com/megajs@1/dist/main.browser-umd.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
