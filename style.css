@@ -219,3 +219,98 @@ body{
   cursor:pointer;
 }
 .view-btn.active{background:var(--surface-3);color:var(--text);border-color:var(--accent);}
+
+/* ====== Mode true black (OLED) ====== */
+body.true-black{
+  --bg:#000000;
+  --surface:#000000;
+  --surface-2:#0a0a0a;
+  --surface-3:#111111;
+  --border:#1a1a1a;
+}
+
+/* ====== Transisi halus ====== */
+.btn, .tab, .view-btn, .card-inner{
+  transition: background-color .15s ease, border-color .15s ease, transform .2s ease;
+}
+
+@keyframes overlayFadeIn{
+  from{opacity:0;}
+  to{opacity:1;}
+}
+.modal:not(.hidden), .viewer:not(.hidden){
+  animation: overlayFadeIn .18s ease;
+}
+
+@keyframes modalPop{
+  from{opacity:0; transform:translateY(10px) scale(.98);}
+  to{opacity:1; transform:none;}
+}
+.modal-card{animation: modalPop .2s ease;}
+
+@keyframes cardFadeIn{
+  from{opacity:0; transform:translateY(6px);}
+  to{opacity:1; transform:none;}
+}
+.card{animation: cardFadeIn .25s ease both;}
+
+/* ====== Kartu dengan swipe-to-delete ====== */
+.card{position:relative;overflow:hidden;padding:0;background:transparent;border:none;}
+.card-delete-action{
+  position:absolute;top:0;right:0;bottom:0;width:74px;
+  background:var(--danger);color:#fff;
+  display:flex;align-items:center;justify-content:center;
+  font-size:1.25rem;
+}
+.card-inner{
+  position:relative;z-index:1;
+  background:var(--surface);
+  border:1px solid var(--border);
+  border-radius:var(--radius);
+  overflow:hidden;
+  display:flex;flex-direction:column;
+  min-height:120px;
+  height:100%;
+  touch-action:pan-y;
+}
+.card-inner:active{background:var(--surface-2);}
+
+/* ====== Loading overlay ====== */
+.loading-overlay{
+  position:fixed;inset:0;z-index:60;
+  background:rgba(0,0,0,.7);
+  display:flex;flex-direction:column;align-items:center;justify-content:center;gap:1em;
+}
+.spinner{
+  width:34px;height:34px;
+  border:3px solid var(--surface-3);
+  border-top-color:var(--accent);
+  border-radius:50%;
+  animation: spin .7s linear infinite;
+}
+@keyframes spin{to{transform:rotate(360deg);}}
+.loading-text{color:var(--text);font-size:.9rem;}
+
+/* ====== Pengaturan: switch & layout ====== */
+.settings-row{
+  display:flex;align-items:center;justify-content:space-between;
+  padding:.6em 0;
+}
+.switch{position:relative;display:inline-block;width:44px;height:26px;}
+.switch input{opacity:0;width:0;height:0;}
+.switch-track{
+  position:absolute;inset:0;cursor:pointer;
+  background:var(--surface-2);border:1px solid var(--border);
+  border-radius:999px;transition:background-color .15s ease;
+}
+.switch-track::before{
+  content:"";position:absolute;height:18px;width:18px;left:3px;top:2px;
+  background:var(--text-muted);border-radius:50%;
+  transition:transform .15s ease, background-color .15s ease;
+}
+.switch input:checked + .switch-track{background:var(--accent-dim);border-color:var(--accent);}
+.switch input:checked + .switch-track::before{transform:translateX(18px);background:var(--accent);}
+
+.settings-section-title{font-size:.85rem;color:var(--text-muted);margin-top:1.2em;}
+.settings-hint{font-size:.8rem;margin:.3em 0 0;}
+.settings-actions{display:flex;flex-wrap:wrap;gap:.6em;margin-top:.8em;}

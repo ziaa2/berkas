@@ -25,6 +25,7 @@
       <button id="btnAddLocal" class="btn btn-ghost" title="Tambah dari perangkat">+ Perangkat</button>
       <button id="btnAddMega" class="btn btn-ghost" title="Tambah dari tautan Mega">+ Tautan</button>
       <button id="btnChangePin" class="btn btn-ghost" title="Ganti PIN">PIN</button>
+      <button id="btnSettings" class="btn btn-ghost" title="Pengaturan">⚙</button>
       <button id="btnLock" class="btn btn-ghost" title="Kunci">🔒</button>
     </div>
   </header>
@@ -70,7 +71,42 @@
     </div>
   </div>
 
+  <!-- Modal: pengaturan (tampilan + cadangan data) -->
+  <div id="settingsModal" class="modal hidden">
+    <div class="modal-card">
+      <h2>Pengaturan</h2>
+
+      <div class="settings-row">
+        <span>Mode true black</span>
+        <label class="switch">
+          <input id="trueBlackToggle" type="checkbox">
+          <span class="switch-track"></span>
+        </label>
+      </div>
+
+      <div class="settings-section-title">Cadangan data</div>
+      <p class="muted settings-hint">Simpan semua berkas & kategori jadi satu file, buat jaga-jaga kalau app terhapus.</p>
+      <div class="settings-actions">
+        <button id="btnBackupShare" class="btn btn-ghost">📤 Bagikan Cadangan</button>
+        <button id="btnBackupDownload" class="btn btn-ghost">⬇ Unduh Cadangan</button>
+        <button id="btnRestore" class="btn btn-ghost">♻ Pulihkan Cadangan</button>
+      </div>
+      <div id="backupStatus" class="status muted"></div>
+      <input id="restoreFileInput" type="file" accept=".zip,application/zip" hidden>
+
+      <div class="modal-actions">
+        <button id="settingsClose" class="btn btn-primary">Tutup</button>
+      </div>
+    </div>
+  </div>
+
   <input id="localFileInput" type="file" accept="video/*,application/pdf,.pdf,.zip,.cbz,application/zip" multiple hidden>
+
+  <!-- Overlay loading (proses tambah/backup/pulihkan) -->
+  <div id="loadingOverlay" class="loading-overlay hidden">
+    <div class="spinner"></div>
+    <div id="loadingText" class="loading-text">Memproses…</div>
+  </div>
 
   <!-- Viewer full-screen -->
   <div id="viewer" class="viewer hidden">

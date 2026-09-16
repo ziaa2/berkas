@@ -1,4 +1,4 @@
-const CACHE_NAME = 'berkas-cache-v4';
+const CACHE_NAME = 'berkas-cache-v5';
 const ASSETS = [
   './',
   './index.html',

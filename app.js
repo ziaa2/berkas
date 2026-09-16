@@ -405,15 +405,76 @@ async function renderGrid() {
       ? `<img src="${item.thumb}" alt="">`
       : `<span class="card-icon">${icons[item.type] || icons.other}</span>`;
     card.innerHTML = `
-      <div class="card-thumb">${thumbHtml}</div>
-      <div class="card-info">
-        <div class="card-name">${escapeHtml(item.name)}</div>
-        <div class="card-meta">${fmtSize(item.size)}</div>
+      <div class="card-delete-action">🗑</div>
+      <div class="card-inner">
+        <div class="card-thumb">${thumbHtml}</div>
+        <div class="card-info">
+          <div class="card-name">${escapeHtml(item.name)}</div>
+          <div class="card-meta">${fmtSize(item.size)}</div>
+        </div>
       </div>
     `;
-    card.addEventListener('click', () => openViewer(item.id));
+    const inner = card.querySelector('.card-inner');
+    const deleteBtn = card.querySelector('.card-delete-action');
+    attachSwipeToDelete(card, inner, deleteBtn, item.id);
     grid.appendChild(card);
   }
+}
+
+// geser kartu ke kiri buat menyingkap tombol hapus, sambil tetap bisa tap biasa buat buka viewer
+const SWIPE_OPEN_OFFSET = -74;
+function attachSwipeToDelete(card, inner, deleteBtn, id) {
+  let startX = null;
+  let baseX = 0;
+  let currentX = 0;
+  let dragged = false;
+
+  inner.addEventListener('touchstart', (e) => {
+    startX = e.touches[0].clientX;
+    baseX = card.classList.contains('swiped') ? SWIPE_OPEN_OFFSET : 0;
+    dragged = false;
+    inner.style.transition = 'none';
+  }, { passive: true });
+
+  inner.addEventListener('touchmove', (e) => {
+    if (startX === null) return;
+    const dx = e.touches[0].clientX - startX;
+    if (Math.abs(dx) > 6) dragged = true;
+    currentX = Math.max(SWIPE_OPEN_OFFSET, Math.min(0, baseX + dx));
+    inner.style.transform = `translateX(${currentX}px)`;
+  }, { passive: true });
+
+  inner.addEventListener('touchend', () => {
+    if (startX === null) return;
+    inner.style.transition = '';
+    if (currentX < SWIPE_OPEN_OFFSET / 2) {
+      card.classList.add('swiped');
+      inner.style.transform = `translateX(${SWIPE_OPEN_OFFSET}px)`;
+    } else {
+      card.classList.remove('swiped');
+      inner.style.transform = '';
+    }
+    startX = null;
+  });
+
+  deleteBtn.addEventListener('click', async (e) => {
+    e.stopPropagation();
+    if (!confirm('Hapus berkas ini?')) return;
+    await dbDelete(id);
+    toast('Berkas dihapus');
+    renderGrid();
+  });
+
+  // tap: kalau kartu lagi kesingkap (habis swipe), tap di mana aja nutup dulu; kalau normal, buka viewer
+  inner.addEventListener('click', (e) => {
+    if (dragged) { dragged = false; return; }
+    if (card.classList.contains('swiped')) {
+      card.classList.remove('swiped');
+      inner.style.transform = '';
+      return;
+    }
+    openViewer(id);
+  });
 }
 
 // ====== Tambah dari perangkat ======
@@ -440,7 +501,12 @@ document.getElementById('localCatCancel').addEventListener('click', () => {
 document.getElementById('localFileInput').addEventListener('change', async (e) => {
   const files = Array.from(e.target.files || []);
   const catId = pendingLocalCategory;
+  if (files.length === 0) return;
+  showLoading(`Memproses 1/${files.length}…`);
+  let i = 0;
   for (const f of files) {
+    i++;
+    showLoading(`Memproses ${i}/${files.length}: ${f.name}`);
     const type = guessType(f.name, f.type || '');
     const thumb = await makeThumb(type, f);
     const isComic = type === 'comic';
@@ -460,6 +526,7 @@ document.getElementById('localFileInput').addEventListener('change', async (e) =
     });
   }
   e.target.value = '';
+  hideLoading();
   toast(files.length + ' berkas ditambahkan');
   renderGrid();
 });
@@ -597,7 +664,7 @@ async function openVideoViewer(item) {
   const wrap = document.createElement('div');
   wrap.style.cssText = 'width:100%;height:100%;display:flex;flex-direction:column;';
   wrap.innerHTML = `
-    <div style="flex:1;display:flex;align-items:center;justify-content:center;overflow:hidden;">
+    <div id="vidTouchArea" style="flex:1;display:flex;align-items:center;justify-content:center;overflow:hidden;">
       <video id="mainVideo" controls autoplay loop playsinline></video>
     </div>
     <div class="video-nav">
@@ -611,6 +678,22 @@ async function openVideoViewer(item) {
 
   const videoEl = wrap.querySelector('#mainVideo');
   const countEl = wrap.querySelector('#vidCount');
+
+  // swipe kiri/kanan di area video buat pindah ke video sebelumnya/berikutnya
+  let vidTouchStartX = null;
+  const touchArea = wrap.querySelector('#vidTouchArea');
+  touchArea.addEventListener('touchstart', (e) => {
+    vidTouchStartX = e.changedTouches[0].clientX;
+  });
+  touchArea.addEventListener('touchend', (e) => {
+    if (vidTouchStartX === null) return;
+    const dx = e.changedTouches[0].clientX - vidTouchStartX;
+    if (Math.abs(dx) > 60) {
+      if (dx < 0 && idx < siblings.length - 1) load(idx + 1);
+      else if (dx > 0 && idx > 0) load(idx - 1);
+    }
+    vidTouchStartX = null;
+  });
 
   function load(i) {
     idx = i;
@@ -705,6 +788,162 @@ async function openComicReader(item) {
   }
 }
 
+// ====== Loading overlay ======
+function showLoading(text) {
+  document.getElementById('loadingText').textContent = text || 'Memproses…';
+  document.getElementById('loadingOverlay').classList.remove('hidden');
+}
+function hideLoading() {
+  document.getElementById('loadingOverlay').classList.add('hidden');
+}
+
+// ====== Mode true black ======
+const TRUEBLACK_KEY = 'berkas_true_black';
+function applyTrueBlack(on) {
+  document.body.classList.toggle('true-black', on);
+}
+function initTrueBlack() {
+  const on = localStorage.getItem(TRUEBLACK_KEY) === '1';
+  document.getElementById('trueBlackToggle').checked = on;
+  applyTrueBlack(on);
+}
+document.getElementById('trueBlackToggle').addEventListener('change', (e) => {
+  localStorage.setItem(TRUEBLACK_KEY, e.target.checked ? '1' : '0');
+  applyTrueBlack(e.target.checked);
+});
+
+// ====== Modal pengaturan ======
+document.getElementById('btnSettings').addEventListener('click', () => {
+  document.getElementById('backupStatus').textContent = '';
+  document.getElementById('settingsModal').classList.remove('hidden');
+});
+document.getElementById('settingsClose').addEventListener('click', () => {
+  document.getElementById('settingsModal').classList.add('hidden');
+});
+
+// ====== Backup & restore ======
+function backupFileName() {
+  const d = new Date();
+  const pad = (n) => String(n).padStart(2, '0');
+  return `berkas-backup-${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}-${pad(d.getHours())}${pad(d.getMinutes())}.zip`;
+}
+
+// kumpulkan semua berkas + kategori jadi satu file zip (berkas asli + manifest.json berisi metadata)
+async function buildBackupZip(onProgress) {
+  const zip = new JSZip();
+  const items = await dbGetAll();
+  const manifest = { version: 1, exportedAt: Date.now(), categories, items: [] };
+  let i = 0;
+  for (const item of items) {
+    i++;
+    if (onProgress) onProgress(i, items.length);
+    const fileName = 'files/' + item.id + '_' + item.name;
+    zip.file(fileName, item.blob);
+    manifest.items.push({
+      id: item.id, name: item.name, originalName: item.originalName, mime: item.mime,
+      type: item.type, category: item.category, size: item.size, thumb: item.thumb,
+      addedAt: item.addedAt, fileName
+    });
+  }
+  zip.file('manifest.json', JSON.stringify(manifest));
+  return zip.generateAsync({ type: 'blob' });
+}
+
+function triggerDownload(blob, filename) {
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 5000);
+}
+
+document.getElementById('btnBackupDownload').addEventListener('click', async () => {
+  const statusEl = document.getElementById('backupStatus');
+  showLoading('Menyiapkan cadangan…');
+  try {
+    const blob = await buildBackupZip((done, total) => showLoading(`Menyiapkan cadangan… (${done}/${total})`));
+    triggerDownload(blob, backupFileName());
+    statusEl.textContent = 'Cadangan diunduh ke folder Download HP kamu.';
+  } catch (err) {
+    console.error(err);
+    statusEl.textContent = 'Gagal membuat cadangan: ' + (err.message || err);
+  } finally {
+    hideLoading();
+  }
+});
+
+document.getElementById('btnBackupShare').addEventListener('click', async () => {
+  const statusEl = document.getElementById('backupStatus');
+  showLoading('Menyiapkan cadangan…');
+  try {
+    const blob = await buildBackupZip((done, total) => showLoading(`Menyiapkan cadangan… (${done}/${total})`));
+    const filename = backupFileName();
+    const file = new File([blob], filename, { type: 'application/zip' });
+    if (navigator.canShare && navigator.canShare({ files: [file] })) {
+      await navigator.share({ files: [file], title: 'Cadangan Berkas' });
+      statusEl.textContent = '';
+    } else {
+      statusEl.textContent = 'Berbagi file tidak didukung di browser ini — diunduh saja.';
+      triggerDownload(blob, filename);
+    }
+  } catch (err) {
+    if (err && err.name !== 'AbortError') {
+      console.error(err);
+      statusEl.textContent = 'Gagal berbagi cadangan: ' + (err.message || err);
+    }
+  } finally {
+    hideLoading();
+  }
+});
+
+document.getElementById('btnRestore').addEventListener('click', () => {
+  document.getElementById('restoreFileInput').click();
+});
+
+document.getElementById('restoreFileInput').addEventListener('change', async (e) => {
+  const file = e.target.files && e.target.files[0];
+  e.target.value = '';
+  if (!file) return;
+  const statusEl = document.getElementById('backupStatus');
+  if (!confirm('Pulihkan cadangan ini? Berkas yang sudah ada tetap aman, hanya berkas dari cadangan yang ditambahkan/ditimpa.')) return;
+  showLoading('Membaca cadangan…');
+  try {
+    const zip = await JSZip.loadAsync(file);
+    const manifestEntry = zip.file('manifest.json');
+    if (!manifestEntry) throw new Error('Bukan file cadangan Berkas yang valid.');
+    const manifest = JSON.parse(await manifestEntry.async('string'));
+    if (Array.isArray(manifest.categories) && manifest.categories.length) {
+      categories = manifest.categories;
+      saveCategories(categories);
+    }
+    const total = (manifest.items || []).length;
+    let i = 0;
+    for (const meta of manifest.items || []) {
+      i++;
+      showLoading(`Memulihkan… (${i}/${total})`);
+      const entry = zip.file(meta.fileName);
+      if (!entry) continue;
+      const blob = await entry.async('blob');
+      await dbPut({
+        id: meta.id, name: meta.name, originalName: meta.originalName, mime: meta.mime,
+        type: meta.type, category: meta.category, size: meta.size, blob,
+        thumb: meta.thumb, addedAt: meta.addedAt
+      });
+    }
+    statusEl.textContent = `Cadangan dipulihkan (${total} berkas).`;
+    renderTabs();
+    renderGrid();
+  } catch (err) {
+    console.error(err);
+    statusEl.textContent = 'Gagal memulihkan cadangan: ' + (err.message || err);
+  } finally {
+    hideLoading();
+  }
+});
+
 // ====== Service worker (mode offline) ======
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
@@ -713,4 +952,5 @@ if ('serviceWorker' in navigator) {
 }
 
 // ====== Init ======
+initTrueBlack();
 initLock();
